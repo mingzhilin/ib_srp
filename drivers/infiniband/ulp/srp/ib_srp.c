@@ -2219,6 +2219,36 @@ out:
 	return ret;
 }
 
+/**
+ * srp_conn_unique() - Check whether the connection to a target is unique.
+ *
+ * Consider targets in state SRP_TARGET_REMOVED as not unique because these
+ * may already have been removed from the target list.
+ */
+static bool srp_conn_unique(struct srp_host *host,
+			    struct srp_target_port *target)
+{
+	struct srp_target_port *t;
+	bool ret = true;
+
+	if (target->state == SRP_TARGET_REMOVED)
+		return false;
+
+	spin_lock(&host->target_lock);
+	list_for_each_entry(t, &host->target_list, list) {
+		if (t != target &&
+		    target->id_ext == t->id_ext &&
+		    target->ioc_guid == t->ioc_guid &&
+		    target->initiator_ext == t->initiator_ext) {
+			ret = false;
+			break;
+		}
+	}
+	spin_unlock(&host->target_lock);
+
+	return ret;
+}
+
 static ssize_t srp_create_target(struct device *dev,
 				 struct device_attribute *attr,
 				 const char *buf, size_t count)
@@ -2256,6 +2286,14 @@ static ssize_t srp_create_target(struct device *dev,
 	ret = srp_parse_options(buf, target);
 	if (ret)
 		goto err;
+
+	/* Don't allow multiple logins to the same target port */
+	if (!srp_conn_unique(target->srp_host, target)) {
+		shost_printk(KERN_INFO, target->scsi_host,
+			     PFX "Refusing to add already connected SRP target port\n");
+			ret = -EEXIST;
+		goto err;
+	}
 
 	if (!host->srp_dev->fmr_pool && !target->allow_ext_sg &&
 				target->cmd_sg_cnt < target->sg_tablesize) {
