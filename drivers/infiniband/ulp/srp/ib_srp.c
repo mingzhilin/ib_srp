@@ -1793,15 +1793,40 @@ static int srp_reset_host(struct scsi_cmnd *scmnd)
 	return ret;
 }
 
+static int srp_set_rq_tmo(struct srp_rport *rport)
+{
+	struct srp_target_port *target = rport->lld_data;
+	struct Scsi_Host *shost = target->scsi_host;
+	struct scsi_device *sdev;
+	unsigned long timeout;
+
+	if (rport->blk_rq_tmo < 0)
+		timeout = max_t(unsigned, 30 * HZ, target->rq_tmo_jiffies);
+	else
+		timeout = (unsigned long) rport->blk_rq_tmo * HZ;
+
+	shost_for_each_device(sdev, shost) {
+		struct request_queue *q = sdev->request_queue;
+		if (sdev->type == TYPE_DISK)
+			blk_queue_rq_timeout(q, timeout);
+	}
+
+	return 0;
+}
+
 static int srp_slave_configure(struct scsi_device *sdev)
 {
 	struct Scsi_Host *shost = sdev->host;
 	struct srp_target_port *target = host_to_target(shost);
 	struct request_queue *q = sdev->request_queue;
+	struct srp_rport *rport = target->rport;
 	unsigned long timeout;
 
 	if (sdev->type == TYPE_DISK) {
-		timeout = max_t(unsigned, 30 * HZ, target->rq_tmo_jiffies);
+		if (rport && rport->blk_rq_tmo >= 0)
+			timeout = (unsigned long) rport->blk_rq_tmo * HZ;
+		else
+			timeout = max_t(unsigned, 30 * HZ, target->rq_tmo_jiffies);
 		blk_queue_rq_timeout(q, timeout);
 	}
 
@@ -1975,6 +2000,8 @@ static int srp_add_target(struct srp_host *host, struct srp_target_port *target)
 	}
 
 	rport->lld_data = target;
+	rport->blk_rq_tmo = -1;
+	target->rport = rport;
 
 	spin_lock(&host->target_lock);
 	list_add_tail(&target->list, &host->target_list);
@@ -2580,6 +2607,7 @@ static void srp_remove_one(struct ib_device *device)
 
 static struct srp_function_template ib_srp_transport_functions = {
 	.rport_delete		 = srp_rport_delete,
+	.rport_set_rq_tmo	 = srp_set_rq_tmo,
 };
 
 static int __init srp_init_module(void)

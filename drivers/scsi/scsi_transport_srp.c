@@ -38,7 +38,7 @@ struct srp_host_attrs {
 #define to_srp_host_attrs(host)	((struct srp_host_attrs *)(host)->shost_data)
 
 #define SRP_HOST_ATTRS 0
-#define SRP_RPORT_ATTRS 3
+#define SRP_RPORT_ATTRS 4
 
 struct srp_internal {
 	struct scsi_transport_template t;
@@ -133,6 +133,57 @@ static ssize_t store_srp_rport_delete(struct device *dev,
 }
 
 static DEVICE_ATTR(delete, S_IWUSR, NULL, store_srp_rport_delete);
+
+static ssize_t show_srp_rport_blk_rq_tmo(struct device *dev,
+					 struct device_attribute *attr,
+					 char *buf)
+{
+	struct srp_rport *rport = transport_class_to_srp_rport(dev);
+
+	if (rport->blk_rq_tmo >= 0)
+		return sprintf(buf, "%d\n", rport->blk_rq_tmo);
+	else
+		return sprintf(buf, "def\n");
+}
+
+#define MIN_RQ_TMO 10
+
+static ssize_t store_srp_rport_blk_rq_tmo(struct device *dev,
+					  struct device_attribute *attr,
+					  const char *buf, size_t count)
+{
+	struct srp_rport *rport = transport_class_to_srp_rport(dev);
+	struct Scsi_Host *shost = dev_to_shost(dev);
+	struct srp_internal *i = to_srp_internal(shost->transportt);
+	char ch[16];
+	int res;
+	int blk_rq_tmo;
+
+	if (count >= 3 && memcmp(buf, "def", 3) == 0) {
+		blk_rq_tmo = -1;
+	} else {
+		sprintf(ch, "%.*s", min_t(int, sizeof(ch) - 1, count), buf);
+		res = kstrtoint(ch, 0, &blk_rq_tmo);
+		if (res)
+			goto out;
+		if (blk_rq_tmo < MIN_RQ_TMO)
+			return -EINVAL;
+	}
+
+	if (i->f->rport_set_rq_tmo) {
+		rport->blk_rq_tmo = blk_rq_tmo;
+		i->f->rport_set_rq_tmo(rport);
+		res = count;
+	} else {
+		return -ENOSYS;
+	}
+out:
+	return res;
+}
+
+static DEVICE_ATTR(blk_rq_tmo, S_IRUGO | S_IWUSR,
+		   show_srp_rport_blk_rq_tmo,
+		   store_srp_rport_blk_rq_tmo);
 
 static void srp_rport_release(struct device *dev)
 {
@@ -329,6 +380,7 @@ srp_attach_transport(struct srp_function_template *ft)
 	i->rport_attrs[count++] = &dev_attr_roles;
 	if (ft->rport_delete)
 		i->rport_attrs[count++] = &dev_attr_delete;
+	i->rport_attrs[count++] = &dev_attr_blk_rq_tmo;
 	i->rport_attrs[count++] = NULL;
 	BUG_ON(count > ARRAY_SIZE(i->rport_attrs));
 
