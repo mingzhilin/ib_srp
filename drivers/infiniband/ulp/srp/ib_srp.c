@@ -40,6 +40,7 @@
 #include <linux/parser.h>
 #include <linux/random.h>
 #include <linux/jiffies.h>
+#include <linux/delay.h>
 
 #include <linux/atomic.h>
 
@@ -477,6 +478,17 @@ static bool srp_set_target_state2(struct srp_target_port *target,
 	return changed;
 }
 
+static bool srp_queue_tl_err_work(struct srp_target_port *target)
+{
+	bool changed = srp_set_target_state2(target, SRP_TARGET_FAILED,
+					     SRP_TARGET_LIVE);
+
+	if (changed)
+		queue_work(system_long_wq, &target->tl_err_work);
+
+	return changed;
+}
+
 static bool srp_queue_remove_work(struct srp_target_port *target)
 {
 	bool changed = srp_set_target_state(target, SRP_TARGET_REMOVED);
@@ -556,6 +568,7 @@ static void srp_remove_target(struct srp_target_port *target)
 	scsi_remove_host(target->scsi_host);
 	srp_disconnect_target(target);
 	ib_destroy_cm_id(target->cm_id);
+	cancel_work_sync(&target->tl_err_work);
 	srp_free_target_ib(target);
 	srp_free_req_data(target);
 	scsi_host_put(target->scsi_host);
@@ -732,6 +745,7 @@ static int srp_reconnect_target(struct srp_target_port *target)
 	scsi_target_block(&shost->shost_gendev);
 
 	srp_disconnect_target(target);
+	cancel_work_sync(&target->tl_err_work);
 	/*
 	 * Now get a new local CM ID so that we avoid confusing the target in
 	 * case things are really fouled up. Doing so also ensures that all CM
@@ -1329,6 +1343,77 @@ static void srp_handle_recv(struct srp_target_port *target, struct ib_wc *wc)
 			     PFX "Recv failed with error code %d\n", res);
 }
 
+static void srp_fail_req(struct srp_target_port *target,
+			 struct srp_request *req)
+{
+	struct scsi_cmnd *scmnd = srp_claim_req(target, req, NULL);
+
+	if (scmnd) {
+		srp_free_req(target, req, scmnd, 0);
+		scmnd->request->cmd_flags |= REQ_QUIET;
+		scmnd->result = DID_TRANSPORT_FAILFAST << 16;
+		scmnd->scsi_done(scmnd);
+	}
+}
+
+static void srp_fail_target_io(struct srp_target_port *target)
+{
+	struct Scsi_Host *shost = target->scsi_host;
+	struct scsi_device *sdev;
+	static struct ib_qp_attr qp_attr = {
+		.qp_state = IB_QPS_ERR
+	};
+	int i, ret;
+
+	WARN_ON_ONCE(target->state != SRP_TARGET_FAILED);
+
+	for (i = 0; i < SRP_CMD_SQ_SIZE; ++i) {
+		struct srp_request *req = &target->req_ring[i];
+		if (req)
+			srp_fail_req(target, req);
+	}
+
+	if (target->qp) {
+		ret = ib_modify_qp(target->qp, &qp_attr, IB_QP_STATE);
+		WARN(ret != 0, "ib_modify_qp() failed: %d\n", ret);
+		if (!ret)
+			target->qp_in_error = true;
+	}
+
+	/*
+	 * We are possibly blocked in recovery. So set SCSI disks to
+	 * 'transport-offline' and set the SCSI host to 'cancel/recovery'
+	 * to fail IO. Make sure that no LUNs are scanned in parallel.
+	 */
+	mutex_lock(&shost->scan_mutex);
+	shost_for_each_device(sdev, shost)
+		scsi_device_set_state(sdev, SDEV_TRANSPORT_OFFLINE);
+
+	spin_lock_irq(shost->host_lock);
+	if (scsi_host_set_state(shost, SHOST_CANCEL))
+		scsi_host_set_state(shost, SHOST_CANCEL_RECOVERY);
+	spin_unlock_irq(shost->host_lock);
+	mutex_unlock(&shost->scan_mutex);
+
+	target->transport_offline = true;
+	srp_set_target_state2(target, SRP_TARGET_RECON, SRP_TARGET_FAILED);
+	/*TODO schedule target reconnect here */
+}
+
+/**
+ * srp_tl_err_work - Handle transport layer errors
+ */
+static void srp_tl_err_work(struct work_struct *work)
+{
+	struct srp_target_port *target;
+
+	target = container_of(work, struct srp_target_port, tl_err_work);
+
+	shost_printk(KERN_INFO, target->scsi_host,
+		     PFX "%s called", __func__);
+	srp_fail_target_io(target);
+}
+
 static void srp_handle_qp_err(enum ib_wc_status wc_status,
 			      enum ib_wc_opcode wc_opcode,
 			      struct srp_target_port *target)
@@ -1339,6 +1424,8 @@ static void srp_handle_qp_err(enum ib_wc_status wc_status,
 			     wc_opcode & IB_WC_RECV ? "receive" : "send",
 			     wc_status);
 	}
+	if (target->rport && target->rport->fast_io_fail_tmo >= 0)
+		srp_queue_tl_err_work(target);
 	target->qp_in_error = true;
 }
 
@@ -1703,6 +1790,8 @@ static int srp_cm_handler(struct ib_cm_id *cm_id, struct ib_cm_event *event)
 		if (ib_send_cm_drep(cm_id, NULL, 0))
 			shost_printk(KERN_ERR, target->scsi_host,
 				     PFX "Sending CM DREP failed\n");
+		if (target->rport && target->rport->fast_io_fail_tmo >= 0)
+			srp_queue_tl_err_work(target);
 		break;
 
 	case IB_CM_TIMEWAIT_EXIT:
@@ -1710,6 +1799,8 @@ static int srp_cm_handler(struct ib_cm_id *cm_id, struct ib_cm_event *event)
 			     PFX "connection closed\n");
 
 		target->status = 0;
+		if (target->rport && target->rport->fast_io_fail_tmo >= 0)
+			srp_queue_tl_err_work(target);
 		break;
 
 	case IB_CM_MRA_RECEIVED:
@@ -1773,6 +1864,24 @@ static int srp_send_tsk_mgmt(struct srp_target_port *target,
 	return 0;
 }
 
+static enum srp_target_state srp_block_scsi_eh(struct scsi_cmnd *scmnd)
+{
+	struct srp_target_port *target = host_to_target(scmnd->device->host);
+	unsigned long flags;
+	enum srp_target_state state;
+
+	spin_lock_irqsave(&target->lock, flags);
+	while (target->state == SRP_TARGET_FAILED) {
+		spin_unlock_irqrestore(&target->lock, flags);
+		msleep(1000);
+		spin_lock_irqsave(&target->lock, flags);
+	}
+	state = target->state;
+	spin_unlock_irqrestore(&target->lock, flags);
+
+	return state;
+}
+
 static int srp_abort(struct scsi_cmnd *scmnd)
 {
 	struct srp_target_port *target = host_to_target(scmnd->device->host);
@@ -1780,6 +1889,13 @@ static int srp_abort(struct scsi_cmnd *scmnd)
 	int ret;
 
 	shost_printk(KERN_ERR, target->scsi_host, "SRP abort called\n");
+
+	if (scmnd->result == DID_TIME_OUT << 16 &&
+	    target->rport &&
+	    target->rport->fast_io_fail_tmo >= 0) {
+		srp_queue_tl_err_work(target);
+		return FAILED;
+	}
 
 	if (!req || !srp_claim_req(target, req, scmnd))
 		return FAILED;
@@ -1801,8 +1917,13 @@ static int srp_reset_device(struct scsi_cmnd *scmnd)
 {
 	struct srp_target_port *target = host_to_target(scmnd->device->host);
 	int i;
+	enum srp_target_state state;
 
 	shost_printk(KERN_ERR, target->scsi_host, "SRP reset_device called\n");
+
+	state = srp_block_scsi_eh(scmnd);
+	if (state == SRP_TARGET_RECON)
+		return SUCCESS;
 
 	if (srp_send_tsk_mgmt(target, SRP_TAG_NO_REQ, scmnd->device->lun,
 			      SRP_TSK_LUN_RESET))
@@ -2377,6 +2498,7 @@ static ssize_t srp_create_target(struct device *dev,
 			     sizeof (struct srp_indirect_buf) +
 			     target->cmd_sg_cnt * sizeof (struct srp_direct_buf);
 
+	INIT_WORK(&target->tl_err_work, srp_tl_err_work);
 	INIT_WORK(&target->remove_work, srp_remove_work);
 	spin_lock_init(&target->lock);
 	INIT_LIST_HEAD(&target->free_tx);
@@ -2440,6 +2562,7 @@ err_disconnect:
 
 err_cm_id:
 	ib_destroy_cm_id(target->cm_id);
+	cancel_work_sync(&target->tl_err_work);
 
 err_free_ib:
 	srp_free_target_ib(target);
