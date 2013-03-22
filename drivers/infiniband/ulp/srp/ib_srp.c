@@ -566,6 +566,9 @@ static int srp_connect_target(struct srp_target_port *target)
 	target->qp_in_error = false;
 
 	ret = srp_lookup_path(target);
+	/* disconnect timed out path and retry */
+	if (ret == -ETIMEDOUT && !ib_send_cm_dreq(target->cm_id, NULL, 0))
+		ret = srp_lookup_path(target);
 	if (ret)
 		return ret;
 
