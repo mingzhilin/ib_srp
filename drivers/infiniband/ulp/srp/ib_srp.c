@@ -1370,7 +1370,6 @@ static int srp_queuecommand(struct Scsi_Host *shost, struct scsi_cmnd *scmnd)
 
 	req = list_first_entry(&target->free_reqs, struct srp_request, list);
 	list_del(&req->list);
-	spin_unlock_irqrestore(&target->lock, flags);
 
 	dev = target->srp_host->srp_dev->dev;
 	ib_dma_sync_single_for_cpu(dev, iu->dma, target->max_iu_len,
@@ -1392,6 +1391,8 @@ static int srp_queuecommand(struct Scsi_Host *shost, struct scsi_cmnd *scmnd)
 
 	len = srp_map_data(scmnd, target, req);
 	if (len < 0) {
+		spin_unlock_irqrestore(&target->lock, flags);
+
 		shost_printk(KERN_ERR, target->scsi_host,
 			     PFX "Failed to map data\n");
 		goto err_iu;
@@ -1401,9 +1402,12 @@ static int srp_queuecommand(struct Scsi_Host *shost, struct scsi_cmnd *scmnd)
 				      DMA_TO_DEVICE);
 
 	if (srp_post_send(target, iu, len)) {
+		spin_unlock_irqrestore(&target->lock, flags);
+
 		shost_printk(KERN_ERR, target->scsi_host, PFX "Send failed\n");
 		goto err_unmap;
 	}
+	spin_unlock_irqrestore(&target->lock, flags);
 
 	return 0;
 
