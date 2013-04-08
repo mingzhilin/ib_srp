@@ -29,6 +29,7 @@
 #include <scsi/scsi_device.h>
 #include <scsi/scsi_host.h>
 #include <scsi/scsi_transport.h>
+#include <scsi/scsi_cmnd.h>
 #include <scsi/scsi_transport_srp.h>
 #include "scsi_transport_srp_internal.h"
 
@@ -180,6 +181,26 @@ out:
 static DEVICE_ATTR(fast_io_fail_tmo, S_IRUGO | S_IWUSR,
 		   show_srp_rport_fast_io_fail_tmo,
 		   store_srp_rport_fast_io_fail_tmo);
+
+/**
+ * srp_timed_out - SRP transport intercept of the SCSI timeout EH
+ *
+ * If a timeout elapses, always trigger the tl_err_work.
+ *
+ * Note: This function is called in soft-IRQ context and with the
+ * request_queue queue lock held.
+ */
+static enum blk_eh_timer_return srp_timed_out(struct scsi_cmnd *scmd)
+{
+	struct Scsi_Host *shost = scmd->device->host;
+	struct srp_internal *i = to_srp_internal(shost->transportt);
+	enum blk_eh_timer_return rtn = BLK_EH_NOT_HANDLED;
+
+	if (i->f->scmnd_queue_tl_err_work)
+		i->f->scmnd_queue_tl_err_work(scmd);
+
+	return rtn;
+}
 
 static void srp_rport_release(struct device *dev)
 {
@@ -356,6 +377,8 @@ srp_attach_transport(struct srp_function_template *ft)
 	i = kzalloc(sizeof(*i), GFP_KERNEL);
 	if (!i)
 		return NULL;
+
+	i->t.eh_timed_out = srp_timed_out;
 
 	i->t.tsk_mgmt_response = srp_tsk_mgmt_response;
 	i->t.it_nexus_response = srp_it_nexus_response;

@@ -489,6 +489,15 @@ static bool srp_queue_tl_err_work(struct srp_target_port *target)
 	return changed;
 }
 
+static bool srp_queue_tl_err_work2(struct scsi_cmnd *scmnd)
+{
+	struct srp_target_port *target = host_to_target(scmnd->device->host);
+
+	if (target->rport && target->rport->fast_io_fail_tmo >= 0)
+		return srp_queue_tl_err_work(target);
+	return false;
+}
+
 static bool srp_queue_remove_work(struct srp_target_port *target)
 {
 	bool changed = srp_set_target_state(target, SRP_TARGET_REMOVED);
@@ -1876,15 +1885,13 @@ static int srp_abort(struct scsi_cmnd *scmnd)
 	struct srp_target_port *target = host_to_target(scmnd->device->host);
 	struct srp_request *req = (struct srp_request *) scmnd->host_scribble;
 	int ret;
+	enum srp_target_state state;
 
 	shost_printk(KERN_ERR, target->scsi_host, "SRP abort called\n");
 
-	if (scmnd->result == DID_TIME_OUT << 16 &&
-	    target->rport &&
-	    target->rport->fast_io_fail_tmo >= 0) {
-		srp_queue_tl_err_work(target);
-		return FAILED;
-	}
+	state = srp_block_scsi_eh(scmnd);
+	if (state == SRP_TARGET_RECON)
+		return SUCCESS;
 
 	if (!req || !srp_claim_req(target, req, scmnd))
 		return FAILED;
@@ -2760,6 +2767,7 @@ static void srp_remove_one(struct ib_device *device)
 static struct srp_function_template ib_srp_transport_functions = {
 	.rport_delete		 = srp_rport_delete,
 	.rport_set_rq_tmo	 = srp_set_rq_tmo,
+	.scmnd_queue_tl_err_work = srp_queue_tl_err_work2,
 };
 
 static int __init srp_init_module(void)
