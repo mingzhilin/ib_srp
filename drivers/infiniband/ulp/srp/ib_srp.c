@@ -444,16 +444,25 @@ static int srp_send_req(struct srp_target_port *target)
 	return status;
 }
 
-static bool srp_queue_remove_work(struct srp_target_port *target)
+static bool srp_set_target_state(struct srp_target_port *target,
+				 enum srp_target_state state)
 {
 	bool changed = false;
+	unsigned long flags;
 
-	spin_lock_irq(&target->lock);
-	if (target->state != SRP_TARGET_REMOVED) {
-		target->state = SRP_TARGET_REMOVED;
+	spin_lock_irqsave(&target->lock, flags);
+	if (target->state != state) {
+		target->state = state;
 		changed = true;
 	}
-	spin_unlock_irq(&target->lock);
+	spin_unlock_irqrestore(&target->lock, flags);
+
+	return changed;
+}
+
+static bool srp_queue_remove_work(struct srp_target_port *target)
+{
+	bool changed = srp_set_target_state(target, SRP_TARGET_REMOVED);
 
 	if (changed)
 		queue_work(system_long_wq, &target->remove_work);
