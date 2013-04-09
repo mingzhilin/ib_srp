@@ -460,6 +460,23 @@ static bool srp_set_target_state(struct srp_target_port *target,
 	return changed;
 }
 
+static bool srp_set_target_state2(struct srp_target_port *target,
+				  enum srp_target_state state,
+				  enum srp_target_state expected)
+{
+	bool changed = false;
+	unsigned long flags;
+
+	spin_lock_irqsave(&target->lock, flags);
+	if (target->state == expected && target->state != state) {
+		target->state = state;
+		changed = true;
+	}
+	spin_unlock_irqrestore(&target->lock, flags);
+
+	return changed;
+}
+
 static bool srp_queue_remove_work(struct srp_target_port *target)
 {
 	bool changed = srp_set_target_state(target, SRP_TARGET_REMOVED);
