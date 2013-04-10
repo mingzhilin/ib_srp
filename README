@@ -17,6 +17,17 @@ and a continuous SRP reconnect is required. The reconnect has to be
 implemented in kernel code and may not operate like a DDoS attack like
 open-iscsi does. So the initiator may only reconnect the targets one by one.
 
+Requirements/Dependencies
+-------------------------
+
+ATTENTION: We set the SCSI disks to 'transport-offline' if we loose the
+connection to the target. The upstream multipath-tools don't support
+reading this state from sysfs, yet. So you need our fix for that.
+
+See: https://github.com/sriemer/multipath-tools
+Branch: master
+Commit: "libmultipath/discovery: read sysfs files uncached"
+
 Installation
 ------------
 
