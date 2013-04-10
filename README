@@ -1,0 +1,30 @@
+ib_srp-fixes from ProfitBricks README
+=====================================
+
+Introduction
+------------
+
+ProfitBricks has an own idea of how the InfiniBand SRP initiator should
+handle connection issues, timeouts and HA/multipathing. In the IaaS 2.0
+cloud with many VM hosting servers and lots of SRP connections as well as
+LUNs this has to work rock solid without manual efforts or the srp-tools.
+Connections are established directly through sysfs without discovery as
+the target IB HCA port GUIDs can't change.
+
+SCSI disks may never be lost in another case than explicit remote port
+deletion. Fast IO failing is required in a calculable settable time frame
+and a continuous SRP reconnect is required. The reconnect has to be
+implemented in kernel code and may not operate like a DDoS attack like
+open-iscsi does. So the initiator may only reconnect the targets one by one.
+
+Installation
+------------
+
+This repository is not meant to be fully functional for use with any older
+kernel version. It is used to show ProfitBricks custom ib_srp patches in
+the hope that these are useful for others as well and that (parts of) these
+are accepted for the mainline. The patches are applied to the latest kernel
+version from which the files to be changed by patches have been copied.
+
+Install the patched files by copying them into the underlaying mainline
+kernel git repository and compile them in-tree.
