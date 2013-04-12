@@ -1,0 +1,79 @@
+TEST: 00double_connect
+======================
+
+Copyright ProfitBricks GmbH - All rights reserved
+
+Author:  Sebastian Riemer <sebastian.riemer@profitbricks.com>
+License: GPLv2
+
+Description
+-----------
+
+The goal of this test is to check if a double connect is rejected
+correctly. If a double connect is possible, then this can cause
+the multipath-tools to hang and having twice the number of SRP
+disks.
+
+Required Hardware
+-----------------
+
+You should have a target system and an initiator system connected
+with two IB/RDMA paths. The smallest possible test setup is
+composed of two desktop machines with two IB/RDMA ports each
+connected back2back.
+
+Preparation
+-----------
+
+Check for all shell scripts in 'common' and this directory if
+the configuration is set correctly for your setup. You should
+run SCST on the target and the ib_srp driver from this repo
+on the initiator.
+
+Make sure you've got some equal sized files prepared - all
+with the same prefix and a number at the end starting at '1'
+(e.g. "vol1", "vol2", ...).
+
+On the initiator the multipath tools shouldn't be running.
+
+============================================================
+
+Step 1: Connect SRP
+-------------------
+
+Target:
+$ ./start_scst.sh
+
+Initiator:
+$ ./connect_srp.sh 7
+
+Expected result:
+Target and initiator are connected via SRP, the exported
+LUNs are available at both paths on the initiator. The
+number of QP retries is at 7. All SRP SCSI disks have the
+same default block layer timeout. This should be at '61'.
+
+Step 2: Try double connect
+--------------------------
+
+Initiator:
+$ ./connect_srp.sh 7
+$ dmesg | tail
+
+Expected result:
+You can see an error "File exists" on each path you
+tried to double connect.
+The kernel log shows the following message:
+"Refusing to add already connected SRP target port"
+
+Step 3: Roll back for the next test
+-----------------------------------
+
+Initiator:
+$ ./disconnect_srp.sh
+
+Target:
+$ ./stop_scst.sh
+
+Expected result:
+No SRP initiator or target modules are loaded.

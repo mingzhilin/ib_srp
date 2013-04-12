@@ -1,0 +1,102 @@
+TEST: 02add_lun
+===============
+
+Copyright ProfitBricks GmbH - All rights reserved
+
+Author:  Sebastian Riemer <sebastian.riemer@profitbricks.com>
+License: GPLv2
+
+Description
+-----------
+
+The goal of this test is to check if the block layer timeout is
+set correctly for SRP LUNs which are hot added.
+
+The background for this test is that the sysfs attribute
+'blk_rq_tmo' only sets the timeout for the currently connected
+SCSI disks. The hot added LUNs are handled by the
+srp_slave_configure() function.
+
+Required Hardware
+-----------------
+
+You should have a target system and an initiator system connected
+with two IB/RDMA paths. The smallest possible test setup is
+composed of two desktop machines with two IB/RDMA ports each
+connected back2back.
+
+Preparation
+-----------
+
+Check for all shell scripts in 'common' and this directory if
+the configuration is set correctly for your setup. You should
+run SCST on the target and the ib_srp driver from this repo
+on the initiator.
+
+Make sure you've got some equal sized files prepared - all
+with the same prefix and a number at the end starting at '1'
+(e.g. "vol1", "vol2", ...).
+
+On the initiator the multipath tools shouldn't be running.
+
+============================================================
+
+Step 1: Preparation
+-------------------
+
+Target:
+$ ./start_scst.sh
+
+Initiator:
+$ ./connect_srp.sh 7
+$ ./set_blk_tmo.sh 15
+
+Expected result:
+Target and initiator are connected via SRP, the exported
+LUNs are available at both paths on the initiator. The
+number of QP retries is at 7. All SRP SCSI disks have the
+same block layer timeout. This should be at '15'.
+
+Step 2: Add a LUN
+-----------------
+
+In this step we assume that you've got three SRP devices
+already exported and want to add LUN 4.
+
+Target:
+$ ./add_lun.sh 4
+
+Initiator:
+$ ./scan_lun.sh 4
+
+Expected result:
+One more SCSI disk should be visiable per path. So this
+should be two additional disks in total with LUN 4.
+
+The block layer timeout of these disks should be at '15'
+as well, now.
+
+Step 3: Remove LUN, reset block layer timeout, scan LUN
+-------------------------------------------------------
+
+Initiator:
+$ ./rm_lun.sh 4
+$ ./set_blk_tmo.sh def
+$ ./scan_lun.sh 4
+
+Expected result:
+The block layer timeout should be at the default '61'
+for all four LUNs at both paths.
+
+Step 4: Roll back for the next test
+-----------------------------------
+
+Initiator:
+$ ./disconnect_srp.sh
+
+Target:
+$ ./del_lun.sh 4
+$ ./stop_scst.sh
+
+Expected result:
+No SRP initiator or target modules are loaded.

@@ -1,0 +1,194 @@
+TEST: 03fast_io_fail
+====================
+
+Copyright ProfitBricks GmbH - All rights reserved
+
+Author:  Sebastian Riemer <sebastian.riemer@profitbricks.com>
+License: GPLv2
+
+Description
+-----------
+
+The goal of this test is to check if "fast IO failing" works
+correctly. We register for that primarily on the QP timeout.
+But it is also possible that a LUN hits blk timeout first,
+aborting and resetting the device doesn't work and the
+reconnect in srp_reset_host() fails.
+The QP timeout is at approx. 35s by default with the default
+7 QP retries. These 35s are also the longest time we can hold
+back IO errors for now.
+
+So we have to check two cases here:
+
+1. Check if QP timeout works (blk timeout > QP timeout,
+   QP retries = 2, lowest possible QP timeout)
+2. Check if block layer timeout + SCSI error handling works
+   (blk timeout: 10s, QP retries: 7, only a single LUN)
+
+Required Hardware
+-----------------
+
+You should have a target system and an initiator system connected
+with two IB/RDMA paths. The smallest possible test setup is
+composed of two desktop machines with two IB/RDMA ports each
+connected back2back.
+
+Preparation
+-----------
+
+Check for all shell scripts in 'common' and this directory if
+the configuration is set correctly for your setup. You should
+run SCST on the target and the ib_srp driver from this repo
+on the initiator.
+
+Make sure you've got some equal sized files prepared - all
+with the same prefix and a number at the end starting at '1'
+(e.g. "vol1", "vol2", ...).
+
+ATTENTION: The multipath-tools from the following location
+must be installed on the initiator side:
+
+https://github.com/sriemer/multipath-tools
+
+An important patch is included there to fix a major bug to
+prevent IO on offline devices.
+
+Patch: "libmultipath/discovery: read sysfs files uncached"
+
+Why it hasn't been accepted upstream:
+http://comments.gmane.org/gmane.linux.kernel.device-mapper.devel/18188
+
+We use the default multipath config which means that the
+directio path checker is used. It reads the first sector
+of a SCSI disk every 5s.
+
+============================================================
+
+Step 1: Preparation
+-------------------
+
+Target:
+$ ./start_scst.sh
+
+Initiator:
+$ /etc/init.d/multipath-tools start
+$ ./connect_srp.sh 2
+$ multipath -ll
+
+Expected result:
+The multipath-tools are running.
+Target and initiator are connected via SRP, the exported
+LUNs are available at both paths on the initiator. The QP
+retries are at '2'. All SRP SCSI disks have the same block
+layer timeout. This should be at '30'.
+
+There is a device mapper device per LUN with two paths
+each.
+
+Step 2: Do and monitor IO
+-------------------------
+
+Pick a device mapper device you want to do IO on. We will
+read from it continuously. Here we assume '/dev/dm-0' and
+that '/dev/sdb' and '/dev/sde' belong to that dm-multipath
+device.
+
+Initiator:
+$ while [ 1 ]; do dd if=/dev/dm-0 iflag=direct bs=1M of=/dev/null; done
+# <switch terminal>
+$ iostat -x -m sdb sde 1
+# <switch terminal>
+
+Expected result:
+You should see a high IO rate on one of the component
+devices and the other is absolutely idle.
+
+Step 3: Let IO fail with QP timeout
+-----------------------------------
+
+There are two possibilities to let the IO fail with time
+relation:
+
+1. Pull the cable where the IO flows.
+2. At least with IB we can hold down a port with
+   'ibportstate'. Perhaps, with RoCE or iWARP 'ifdown'
+   and later 'ifup' works.
+
+Initiator:
+# <Hold down the port for 90s :>
+$ ./turnoff_ib.sh 90
+# <look at the iostat and wait for 0 MB/s IO>
+# <look at your watch for the start time>
+# <look at the iostat again>
+# <wait for IO failing over>
+# <check the elapsed time>
+$ cat /sys/block/sd[b-z]/device/state
+$ dmesg | less
+
+Expected result:
+It takes approx. 14s until you can see that IO is
+failed over to the other path. All SCSI disks are
+set to 'transport-offline'.
+The disrupted SRP host is NOT removed. This allows
+repeated reconnects.
+
+Kernel log: IO is failed without SCSI debugging
+output. You can't see any srp_abort() calls.
+You can't see IO to offline devices by the
+multipath-tools.
+
+You can see messages like these:
+scsi host6: ib_srp: failed send status 5
+scsi host6: ib_srp: srp_tl_err_work called
+
+Step 4: Redo with blk timeout
+-----------------------------
+
+Initiator:
+# <switch to 'dd' terminal, stop IO>
+# <stop iostat>
+$ ./remove_all_paths.sh
+$ ./disconnect_srp.sh
+
+Target:
+$ ./stop_scst.sh
+# <edit start_scst.sh to export a single LUN per path>
+$ ./start_scst.sh
+
+Initiator:
+$ ./connect_srp.sh 7
+$ ./set_blk_tmo.sh 10
+$ multipath -ll
+# <repeat steps 2 and 3>
+
+Expected result:
+IO is failed over in less than the QP timeout
+(< 35s). All SCSI disks are set to 'transport-offline'.
+The disrupted SRP host is NOT removed. This allows
+repeated reconnects.
+
+Kernel log: You can see at least one srp_abort(),
+srp_reset_device() and srp_reset_host() call each.
+The reconnect in srp_reset_host() failed. The IOs
+are failed with SCSI debugging enabled with
+'DID_ABORT'. No IO to offline devices.
+
+A message like the following is only triggered
+after failed reconnect:
+scsi host6: ib_srp: failed send status 5
+
+Step 5: Roll back for the next test
+-----------------------------------
+
+Initiator:
+# <switch to 'dd' terminal, stop IO>
+# <stop iostat>
+$ ./remove_all_paths.sh
+$ ./disconnect_srp.sh
+
+Target:
+$ ./stop_scst.sh
+# <reset the number of LUNs per path in start_scst.sh>
+
+Expected result:
+No SRP initiator or target modules are loaded.
