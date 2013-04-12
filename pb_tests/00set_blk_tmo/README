@@ -1,0 +1,82 @@
+TEST: 00set_blk_tmo
+===================
+
+Copyright ProfitBricks GmbH - All rights reserved
+
+Author:  Sebastian Riemer <sebastian.riemer@profitbricks.com>
+License: GPLv2
+
+Description
+-----------
+
+The goal of this test is to check if the block layer timeout can
+be set for all SRP connected SCSI disks at once through the SRP
+remote port sysfs attribute 'fast_io_fail_tmo'.
+
+Required Hardware
+-----------------
+
+You should have a target system and an initiator system connected
+with two IB/RDMA paths. The smallest possible test setup is
+composed of two desktop machines with two IB/RDMA ports each
+connected back2back.
+
+Preparation
+-----------
+
+Check for all shell scripts in 'common' and this directory if
+the configuration is set correctly for your setup. You should
+run SCST on the target and the ib_srp driver from this repo
+on the initiator.
+
+Make sure you've got some equal sized files prepared - all
+with the same prefix and a number at the end starting at '1'
+(e.g. "vol1", "vol2", ...).
+
+============================================================
+
+Step 1: Connect SRP
+-------------------
+
+Target:
+$ ./start_scst.sh
+
+Initiator:
+$ ./connect_srp.sh
+
+Expected result:
+Target and initiator are connected via SRP, the exported
+LUNs are available at both paths on the initiator. All
+SRP SCSI disks have the same default block layer timeout.
+This should be '61' (fast IO failing disabled) by default.
+
+Step 2: Set block layer timeout
+-------------------------------
+
+Initiator:
+$ ./set_timeout.sh 15
+
+Expected result:
+Like step 1 but all SRP SCSI disks should have the value
+'15' as block layer timeout, now.
+
+Step 3: Reset block layer timeout
+---------------------------------
+
+Initiator:
+$ ./set_timeout.sh off
+
+Expected result:
+Like step 1.
+
+Step 4: Roll back for the next test
+-----------------------------------
+
+Initiator:
+$ ./disconnect_srp.sh
+
+Target:
+$ ./stop_scst.sh
+
+Expected result:
+No SRP initiator or target modules loaded anymore.

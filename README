@@ -1,6 +1,14 @@
 ib_srp-fixes from ProfitBricks README
 =====================================
 
+Copyright ProfitBricks GmbH - All rights reserved
+
+Author:  Sebastian Riemer <sebastian.riemer@profitbricks.com>
+License: GPLv2
+Version: 0.1   --> Only fast IO failing + tests
+
+Kernel version used: 3.9-rc6
+
 Introduction
 ------------
 
@@ -22,11 +30,14 @@ Requirements/Dependencies
 
 ATTENTION: We set the SCSI disks to 'transport-offline' if we loose the
 connection to the target. The upstream multipath-tools don't support
-reading this state from sysfs, yet. So you need our fix for that.
+reading this state from sysfs UNCACHED, yet. So you need our fix for that.
 
 See: https://github.com/sriemer/multipath-tools
 Branch: master
 Commit: "libmultipath/discovery: read sysfs files uncached"
+
+Why it hasn't been accepted upstream:
+http://comments.gmane.org/gmane.linux.kernel.device-mapper.devel/18188
 
 Installation
 ------------
@@ -39,3 +50,15 @@ version from which the files to be changed by patches have been copied.
 
 Install the patched files by copying them into the underlaying mainline
 kernel git repository and compile them in-tree.
+
+Testing
+-------
+
+Please have a look at the 'pb_tests' directory. There you can find test
+descriptions and required bash scripts.
+
+TODO
+----
+
+* Implement and publish automatic continuous reconnect in kernel code
+* Look at path checkers better than the 'directio path checker'
