@@ -1,0 +1,27 @@
+0.3, 2013-04-17
+-----------------------------------------------------
+* changed the following commit:
+  "IB/srp: Fail IO faster based on block and QP timeout"
+  so that the SCSI host isn't set to 'cancel' anymore
+  as we can't set it back to 'running' otherwise
+
+* added temporary commit:
+  "IB/srp: Show that a reconnect can work"
+  to provide a manual reconnect for testing
+
+* updated the 02fail_io_fast test for the correct
+  expected SCSI host state ('running', not 'cancel')
+
+0.2, 2013-04-16
+-----------------------------------------------------
+* removed the following commit:
+  "IB/srp: Reconnect timed out paths when connecting"
+  as it turned out that this was the wrong fix for a
+  back porting issue 3.9-rc6 isn't affected with
+
+* updated the 02fail_io_fast test for correct 3.9-rc6
+  mainline behavior
+
+0.1, 2013-04-12
+-----------------------------------------------------
+Initial release
