@@ -795,6 +795,23 @@ err:
 	return ret;
 }
 
+static int srp_rport_reconnect(struct srp_rport *rport)
+{
+	struct srp_target_port *target = rport->lld_data;
+	int ret = -EINVAL;
+
+	if (!srp_set_target_state2(target, SRP_TARGET_FAILED, SRP_TARGET_RECON))
+		goto out;
+
+	ret = srp_reconnect_target(target);
+	if (!ret)
+		srp_set_target_state2(target, SRP_TARGET_LIVE, SRP_TARGET_FAILED);
+	else
+		srp_set_target_state2(target, SRP_TARGET_RECON, SRP_TARGET_FAILED);
+out:
+	return ret;
+}
+
 static void srp_map_desc(struct srp_map_state *state, dma_addr_t dma_addr,
 			 unsigned int dma_len, u32 rkey)
 {
@@ -2820,6 +2837,7 @@ static void srp_remove_one(struct ib_device *device)
 static struct srp_function_template ib_srp_transport_functions = {
 	.rport_delete		 = srp_rport_delete,
 	.rport_set_rq_tmo	 = srp_set_rq_tmo,
+	.rport_reconnect	 = srp_rport_reconnect,
 };
 
 static int __init srp_init_module(void)

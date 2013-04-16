@@ -38,7 +38,7 @@ struct srp_host_attrs {
 #define to_srp_host_attrs(host)	((struct srp_host_attrs *)(host)->shost_data)
 
 #define SRP_HOST_ATTRS 0
-#define SRP_RPORT_ATTRS 4
+#define SRP_RPORT_ATTRS 5
 
 struct srp_internal {
 	struct scsi_transport_template t;
@@ -133,6 +133,28 @@ static ssize_t store_srp_rport_delete(struct device *dev,
 }
 
 static DEVICE_ATTR(delete, S_IWUSR, NULL, store_srp_rport_delete);
+
+static ssize_t store_srp_rport_reconnect(struct device *dev,
+					 struct device_attribute *attr,
+					 const char *buf, size_t count)
+{
+	struct srp_rport *rport = transport_class_to_srp_rport(dev);
+	struct Scsi_Host *shost = dev_to_shost(dev);
+	struct srp_internal *i = to_srp_internal(shost->transportt);
+	int res;
+
+	if (i->f->rport_reconnect) {
+		res = i->f->rport_reconnect(rport);
+		if (res)
+			return res;
+		else
+			return count;
+	} else {
+		return -ENOSYS;
+	}
+}
+
+static DEVICE_ATTR(reconnect, S_IWUSR, NULL, store_srp_rport_reconnect);
 
 static ssize_t show_srp_rport_blk_rq_tmo(struct device *dev,
 					 struct device_attribute *attr,
@@ -381,6 +403,8 @@ srp_attach_transport(struct srp_function_template *ft)
 	if (ft->rport_delete)
 		i->rport_attrs[count++] = &dev_attr_delete;
 	i->rport_attrs[count++] = &dev_attr_blk_rq_tmo;
+	if (ft->rport_reconnect)
+		i->rport_attrs[count++] = &dev_attr_reconnect;
 	i->rport_attrs[count++] = NULL;
 	BUG_ON(count > ARRAY_SIZE(i->rport_attrs));
 
