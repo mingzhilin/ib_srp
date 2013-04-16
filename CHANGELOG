@@ -1,0 +1,71 @@
+0.5, 2013-04-25
+-----------------------------------------------------
+Major changes to fail IO fast based on QP timeout only
+
+* renamed the sysfs file "fast_io_fail_tmo" into
+  "blk_rq_tmo" by replacing the following commit:
+  "IB/srp: Allow fast IO failing through rport sysfs"
+  with
+  "IB/srp: Configure blk_rq_tmo through rport sysfs"
+
+* set a minimal settable blk request queue timeout of 10s
+
+* replaced fast IO failing with the following commit:
+  "IB/srp: Fail IO faster based on QP timeout"
+
+* added the following commits:
+  "IB/srp: Fix a possible race in srp_reset_host()"
+  "IB/srp: Make the QP timeout configurable through sysfs"
+  "IB/srp: Show QP retry count in srp_host sysfs"
+
+* made the reconnect operate during SRP_TARGET_FAILED
+  state to prevent possible state issues or races
+
+* added a test for double login
+
+* adapted all tests for the new behavior
+
+0.4, 2013-04-18
+-----------------------------------------------------
+* removed the superfluous scan mutex locking in the
+  following commit:
+  "IB/srp: Allow fast IO failing through rport sysfs"
+
+* changed the following commit:
+  "IB/srp: Fail IO faster based on block and QP timeout"
+  so that the scsi_target_[un]block() functions are
+  used like in srp_reconnect_target().
+
+* added the following commit:
+  "IB/srp: Don't remove SCSI hosts upon failed reconnect"
+
+* updated the 02fail_io_fast test for the new behavior
+  NOT loosing the SCSI host upon failed reconnect
+
+0.3, 2013-04-17
+-----------------------------------------------------
+* changed the following commit:
+  "IB/srp: Fail IO faster based on block and QP timeout"
+  so that the SCSI host isn't set to 'cancel' anymore
+  as we can't set it back to 'running' otherwise
+
+* added temporary commit:
+  "IB/srp: Show that a reconnect can work"
+  to provide a manual reconnect for testing
+
+* updated the 02fail_io_fast test for the correct
+  expected SCSI host state ('running', not 'cancel')
+
+0.2, 2013-04-16
+-----------------------------------------------------
+* removed the following commit:
+  "IB/srp: Reconnect timed out paths when connecting"
+  as it turned out that this was the wrong fix for a
+  back porting issue 3.9-rc6 isn't affected with
+
+* updated the 02fail_io_fast test for correct 3.9-rc6
+  mainline behavior
+
+0.1, 2013-04-12
+-----------------------------------------------------
+Initial release
