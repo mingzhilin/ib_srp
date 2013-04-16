@@ -1,0 +1,13 @@
+0.2, 2013-04-16
+-----------------------------------------------------
+* removed the following commit:
+  "IB/srp: Reconnect timed out paths when connecting"
+  as it turned out that this was the wrong fix for a
+  back porting issue 3.9-rc6 isn't affected with
+
+* updated the 03fail_io_fast test for correct 3.9-rc6
+  mainline behavior
+
+0.1, 2013-04-12
+-----------------------------------------------------
+Initial release
