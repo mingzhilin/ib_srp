@@ -32,6 +32,7 @@ struct srp_function_template {
 	void (*rport_delete)(struct srp_rport *rport);
 	int (*rport_set_rq_tmo)(struct srp_rport *rport);
 	bool (*scmnd_queue_tl_err_work)(struct scsi_cmnd *scmnd);
+	int (*rport_reconnect)(struct srp_rport *rport);
 	/* for target drivers */
 	int (* tsk_mgmt_response)(struct Scsi_Host *, u64, u64, int);
 	int (* it_nexus_response)(struct Scsi_Host *, u64, int);
