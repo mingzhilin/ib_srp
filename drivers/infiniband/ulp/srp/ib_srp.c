@@ -785,15 +785,12 @@ static int srp_reconnect_target(struct srp_target_port *target)
 
 err:
 	shost_printk(KERN_ERR, target->scsi_host,
-		     PFX "reconnect failed (%d), removing target port.\n", ret);
+		     PFX "reconnect failed (%d), SCSI devices offlined.\n", ret);
 
 	/*
-	 * We couldn't reconnect, so kill our target port off.
-	 * However, we have to defer the real removal because we
-	 * are in the context of the SCSI error handler now, which
-	 * will deadlock if we call scsi_remove_host().
+	 * A connection issue may not remove the SCSI devices.
+	 * It is enough to set them offline.
 	 */
-	srp_queue_remove_work(target);
 
 	return ret;
 }
