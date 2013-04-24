@@ -1931,8 +1931,20 @@ static int srp_reset_host(struct scsi_cmnd *scmnd)
 
 	shost_printk(KERN_ERR, target->scsi_host, PFX "SRP reset_host called\n");
 
-	if (!srp_reconnect_target(target))
-		ret = SUCCESS;
+	if (srp_set_target_state2(target, SRP_TARGET_FAILED, SRP_TARGET_LIVE)) {
+		if (!srp_reconnect_target(target)) {
+			srp_set_target_state2(target, SRP_TARGET_LIVE,
+					      SRP_TARGET_FAILED);
+			ret = SUCCESS;
+		} else {
+			srp_set_target_state2(target, SRP_TARGET_RECON,
+					      SRP_TARGET_FAILED);
+			/*TODO schedule target reconnect here */
+		}
+	} else {
+		srp_block_scsi_eh(scmnd);
+		ret = FAST_IO_FAIL;
+	}
 
 	return ret;
 }
