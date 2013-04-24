@@ -76,6 +76,8 @@ enum {
 
 	SRP_MAP_ALLOW_FMR	= 0,
 	SRP_MAP_NO_FMR		= 1,
+
+	SRP_DEF_QP_RETRIES	= 7,
 };
 
 enum srp_target_state {
@@ -106,6 +108,7 @@ struct srp_host {
 	struct srp_device      *srp_dev;
 	u8			port;
 	struct device		dev;
+	unsigned int		def_qp_retries;
 	struct list_head	target_list;
 	spinlock_t		target_lock;
 	struct completion	released;

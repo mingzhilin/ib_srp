@@ -389,7 +389,7 @@ static int srp_send_req(struct srp_target_port *target)
 	req->param.responder_resources	      = 4;
 	req->param.remote_cm_response_timeout = 20;
 	req->param.local_cm_response_timeout  = 20;
-	req->param.retry_count 		      = 7;
+	req->param.retry_count 		      = target->srp_host->def_qp_retries;
 	req->param.rnr_retry_count 	      = 7;
 	req->param.max_cm_retries 	      = 15;
 
@@ -1651,6 +1651,7 @@ static void srp_cm_rep_handler(struct ib_cm_id *cm_id,
 	if (ret)
 		goto error_free;
 
+	qp_attr->retry_cnt = target->srp_host->def_qp_retries;
 	target->rq_tmo_jiffies = srp_compute_rq_tmo(qp_attr, attr_mask);
 
 	ret = ib_modify_qp(target->qp, qp_attr, attr_mask);
@@ -2592,6 +2593,42 @@ static ssize_t show_port(struct device *dev, struct device_attribute *attr,
 
 static DEVICE_ATTR(port, S_IRUGO, show_port, NULL);
 
+static ssize_t show_def_qp_retries(struct device *dev,
+				   struct device_attribute *attr,
+				   char *buf)
+{
+	struct srp_host *host = container_of(dev, struct srp_host, dev);
+
+	return sprintf(buf, "%d\n", host->def_qp_retries);
+}
+
+static ssize_t store_def_qp_retries(struct device *dev,
+				    struct device_attribute *attr,
+				    const char *buf, size_t count)
+{
+	struct srp_host *host = container_of(dev, struct srp_host, dev);
+	char ch[16];
+	int res;
+	unsigned int qp_retries;
+
+	sprintf(ch, "%.*s", min_t(int, sizeof(ch) - 1, count), buf);
+	res = kstrtouint(ch, 0, &qp_retries);
+	if (res)
+		goto out;
+
+	if (qp_retries < 2 || qp_retries > 7) {
+		res = -EINVAL;
+	} else {
+		host->def_qp_retries = qp_retries;
+		res = count;
+	}
+out:
+	return res;
+}
+
+static DEVICE_ATTR(def_qp_retries, S_IRUGO|S_IWUSR, show_def_qp_retries,
+		   store_def_qp_retries);
+
 static struct srp_host *srp_add_port(struct srp_device *device, u8 port)
 {
 	struct srp_host *host;
@@ -2605,6 +2642,7 @@ static struct srp_host *srp_add_port(struct srp_device *device, u8 port)
 	init_completion(&host->released);
 	host->srp_dev = device;
 	host->port = port;
+	host->def_qp_retries = SRP_DEF_QP_RETRIES;
 
 	host->dev.class = &srp_class;
 	host->dev.parent = device->dev->dma_device;
@@ -2617,6 +2655,8 @@ static struct srp_host *srp_add_port(struct srp_device *device, u8 port)
 	if (device_create_file(&host->dev, &dev_attr_ibdev))
 		goto err_class;
 	if (device_create_file(&host->dev, &dev_attr_port))
+		goto err_class;
+	if (device_create_file(&host->dev, &dev_attr_def_qp_retries))
 		goto err_class;
 
 	return host;
