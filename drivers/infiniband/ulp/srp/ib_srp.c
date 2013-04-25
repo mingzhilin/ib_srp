@@ -2089,6 +2089,20 @@ static ssize_t show_allow_ext_sg(struct device *dev,
 	return sprintf(buf, "%s\n", target->allow_ext_sg ? "true" : "false");
 }
 
+static ssize_t show_qp_retries(struct device *dev,
+			       struct device_attribute *attr, char *buf)
+{
+	struct srp_target_port *target = host_to_target(class_to_shost(dev));
+	struct ib_qp *qp = target->qp;
+	struct ib_qp_attr qp_attr;
+	struct ib_qp_init_attr qpi_attr;  /* useless, but required */
+
+	if (!qp || ib_query_qp(qp, &qp_attr, IB_QP_RETRY_CNT, &qpi_attr))
+		return -EINVAL;
+
+	return sprintf(buf, "%u\n", qp_attr.retry_cnt);
+}
+
 static DEVICE_ATTR(id_ext,	    S_IRUGO, show_id_ext,	   NULL);
 static DEVICE_ATTR(ioc_guid,	    S_IRUGO, show_ioc_guid,	   NULL);
 static DEVICE_ATTR(service_id,	    S_IRUGO, show_service_id,	   NULL);
@@ -2101,6 +2115,7 @@ static DEVICE_ATTR(local_ib_port,   S_IRUGO, show_local_ib_port,   NULL);
 static DEVICE_ATTR(local_ib_device, S_IRUGO, show_local_ib_device, NULL);
 static DEVICE_ATTR(cmd_sg_entries,  S_IRUGO, show_cmd_sg_entries,  NULL);
 static DEVICE_ATTR(allow_ext_sg,    S_IRUGO, show_allow_ext_sg,    NULL);
+static DEVICE_ATTR(qp_retries,      S_IRUGO, show_qp_retries,      NULL);
 
 static struct device_attribute *srp_host_attrs[] = {
 	&dev_attr_id_ext,
@@ -2115,6 +2130,7 @@ static struct device_attribute *srp_host_attrs[] = {
 	&dev_attr_local_ib_device,
 	&dev_attr_cmd_sg_entries,
 	&dev_attr_allow_ext_sg,
+	&dev_attr_qp_retries,
 	NULL
 };
 
