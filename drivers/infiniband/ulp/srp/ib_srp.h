@@ -78,6 +78,7 @@ enum {
 	SRP_MAP_NO_FMR		= 1,
 
 	SRP_DEF_QP_RETRIES	= 7,
+	SRP_DEF_RCO_DELAY	= 30,
 };
 
 enum srp_target_state {
@@ -109,6 +110,8 @@ struct srp_host {
 	u8			port;
 	struct device		dev;
 	unsigned int		def_qp_retries;
+	unsigned int		def_rco_delay;
+	atomic_t		targets_down;
 	struct list_head	target_list;
 	spinlock_t		target_lock;
 	struct completion	released;
@@ -171,6 +174,10 @@ struct srp_target_port {
 	u32			rq_tmo_jiffies;
 	bool			connected;
 
+#define SRP_RCO_ACTIVE		0
+	unsigned long		rco_flags;
+	u32			rco_delay;
+
 	struct ib_cm_id	       *cm_id;
 
 	int			max_ti_iu_len;
@@ -183,6 +190,7 @@ struct srp_target_port {
 
 	struct work_struct	tl_err_work;
 	struct work_struct	remove_work;
+	struct delayed_work	reconnect_work;
 
 	struct list_head	list;
 	struct completion	done;

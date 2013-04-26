@@ -563,12 +563,16 @@ static void srp_remove_target(struct srp_target_port *target)
 {
 	WARN_ON_ONCE(target->state != SRP_TARGET_REMOVED);
 
+	cancel_work_sync(&target->tl_err_work);
+	cancel_delayed_work_sync(&target->reconnect_work);
+
 	srp_del_scsi_host_attr(target->scsi_host);
 	srp_remove_host(target->scsi_host);
 	scsi_remove_host(target->scsi_host);
 	srp_disconnect_target(target);
+	if (test_and_clear_bit(SRP_RCO_ACTIVE, &target->rco_flags))
+		atomic_dec(&target->srp_host->targets_down);
 	ib_destroy_cm_id(target->cm_id);
-	cancel_work_sync(&target->tl_err_work);
 	srp_free_target_ib(target);
 	srp_free_req_data(target);
 	scsi_host_put(target->scsi_host);
@@ -1337,6 +1341,18 @@ static void srp_handle_recv(struct srp_target_port *target, struct ib_wc *wc)
 			     PFX "Recv failed with error code %d\n", res);
 }
 
+static void srp_queue_reconnect(struct srp_target_port *target)
+{
+	struct srp_host *host = target->srp_host;
+
+	if (!test_and_set_bit(SRP_RCO_ACTIVE, &target->rco_flags))
+		target->rco_delay = host->def_rco_delay +
+				    atomic_add_return(1, &host->targets_down) - 1;
+
+	queue_delayed_work(system_long_wq, &target->reconnect_work,
+			   target->rco_delay * HZ);
+}
+
 static void srp_fail_req(struct srp_target_port *target,
 			 struct srp_request *req)
 {
@@ -1382,8 +1398,8 @@ static void srp_fail_target_io(struct srp_target_port *target)
 	target->transport_offline = true;
 	scsi_target_unblock(&shost->shost_gendev, SDEV_TRANSPORT_OFFLINE);
 
-	srp_set_target_state2(target, SRP_TARGET_RECON, SRP_TARGET_FAILED);
-	/*TODO schedule target reconnect here */
+	if (srp_set_target_state2(target, SRP_TARGET_RECON, SRP_TARGET_FAILED))
+		srp_queue_reconnect(target);
 }
 
 /**
@@ -1398,6 +1414,36 @@ static void srp_tl_err_work(struct work_struct *work)
 	shost_printk(KERN_INFO, target->scsi_host,
 		     PFX "%s called", __func__);
 	srp_fail_target_io(target);
+}
+
+/**
+ * srp_reconnect_work - Try to reconnect a failed target connection
+ */
+static void srp_reconnect_work(struct work_struct *work)
+{
+	struct srp_target_port *target;
+
+	target = container_of(to_delayed_work(work), struct srp_target_port,
+			      reconnect_work);
+
+	if (!srp_set_target_state2(target, SRP_TARGET_FAILED, SRP_TARGET_RECON))
+		goto stop_rco;
+
+	if (!srp_reconnect_target(target)) {
+		srp_set_target_state2(target, SRP_TARGET_LIVE, SRP_TARGET_FAILED);
+		goto stop_rco;
+	} else {
+		if (srp_set_target_state2(target, SRP_TARGET_RECON, SRP_TARGET_FAILED))
+			queue_delayed_work(system_long_wq, &target->reconnect_work,
+					   target->rco_delay * HZ);
+		else
+			goto stop_rco;
+	}
+	return;
+
+stop_rco:
+	if (test_and_clear_bit(SRP_RCO_ACTIVE, &target->rco_flags))
+		atomic_dec(&target->srp_host->targets_down);
 }
 
 static void srp_handle_qp_err(enum ib_wc_status wc_status,
@@ -1935,9 +1981,9 @@ static int srp_reset_host(struct scsi_cmnd *scmnd)
 					      SRP_TARGET_FAILED);
 			ret = SUCCESS;
 		} else {
-			srp_set_target_state2(target, SRP_TARGET_RECON,
-					      SRP_TARGET_FAILED);
-			/*TODO schedule target reconnect here */
+			if (srp_set_target_state2(target, SRP_TARGET_RECON,
+						  SRP_TARGET_FAILED))
+				srp_queue_reconnect(target);
 		}
 	} else {
 		srp_block_scsi_eh(scmnd);
@@ -2508,6 +2554,7 @@ static ssize_t srp_create_target(struct device *dev,
 
 	INIT_WORK(&target->tl_err_work, srp_tl_err_work);
 	INIT_WORK(&target->remove_work, srp_remove_work);
+	INIT_DELAYED_WORK(&target->reconnect_work, srp_reconnect_work);
 	spin_lock_init(&target->lock);
 	INIT_LIST_HEAD(&target->free_tx);
 	INIT_LIST_HEAD(&target->free_reqs);
@@ -2656,6 +2703,7 @@ static struct srp_host *srp_add_port(struct srp_device *device, u8 port)
 	host->srp_dev = device;
 	host->port = port;
 	host->def_qp_retries = SRP_DEF_QP_RETRIES;
+	host->def_rco_delay = SRP_DEF_RCO_DELAY;
 
 	host->dev.class = &srp_class;
 	host->dev.parent = device->dev->dma_device;
