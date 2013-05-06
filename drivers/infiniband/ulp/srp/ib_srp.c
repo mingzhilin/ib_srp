@@ -2689,6 +2689,42 @@ out:
 static DEVICE_ATTR(def_qp_retries, S_IRUGO|S_IWUSR, show_def_qp_retries,
 		   store_def_qp_retries);
 
+static ssize_t show_def_rco_delay(struct device *dev,
+				  struct device_attribute *attr,
+				  char *buf)
+{
+	struct srp_host *host = container_of(dev, struct srp_host, dev);
+
+	return sprintf(buf, "%d\n", host->def_rco_delay);
+}
+
+static ssize_t store_def_rco_delay(struct device *dev,
+				   struct device_attribute *attr,
+				   const char *buf, size_t count)
+{
+	struct srp_host *host = container_of(dev, struct srp_host, dev);
+	char ch[16];
+	int res;
+	unsigned int def_rco_delay;
+
+	sprintf(ch, "%.*s", min_t(int, sizeof(ch) - 1, count), buf);
+	res = kstrtouint(ch, 0, &def_rco_delay);
+	if (res)
+		goto out;
+
+	if (def_rco_delay < 10 || def_rco_delay > 60) {
+		res = -EINVAL;
+	} else {
+		host->def_rco_delay = def_rco_delay;
+		res = count;
+	}
+out:
+	return res;
+}
+
+static DEVICE_ATTR(def_rco_delay, S_IRUGO|S_IWUSR, show_def_rco_delay,
+		   store_def_rco_delay);
+
 static struct srp_host *srp_add_port(struct srp_device *device, u8 port)
 {
 	struct srp_host *host;
@@ -2718,6 +2754,8 @@ static struct srp_host *srp_add_port(struct srp_device *device, u8 port)
 	if (device_create_file(&host->dev, &dev_attr_port))
 		goto err_class;
 	if (device_create_file(&host->dev, &dev_attr_def_qp_retries))
+		goto err_class;
+	if (device_create_file(&host->dev, &dev_attr_def_rco_delay))
 		goto err_class;
 
 	return host;
