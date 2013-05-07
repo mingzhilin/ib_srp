@@ -1345,9 +1345,13 @@ static void srp_queue_reconnect(struct srp_target_port *target)
 {
 	struct srp_host *host = target->srp_host;
 
-	if (!test_and_set_bit(SRP_RCO_ACTIVE, &target->rco_flags))
-		target->rco_delay = host->def_rco_delay +
-				    atomic_add_return(1, &host->targets_down) - 1;
+	if (!test_and_set_bit(SRP_RCO_ACTIVE, &target->rco_flags)) {
+		if (test_bit(SRP_RCO_DELAYSET,  &target->rco_flags))
+			atomic_inc(&host->targets_down);
+		else
+			target->rco_delay = host->def_rco_delay +
+				atomic_add_return(1, &host->targets_down) - 1;
+	}
 
 	queue_delayed_work(system_long_wq, &target->reconnect_work,
 			   target->rco_delay * HZ);
@@ -2146,6 +2150,43 @@ static ssize_t show_qp_retries(struct device *dev,
 	return sprintf(buf, "%u\n", qp_attr.retry_cnt);
 }
 
+static ssize_t show_rco_delay(struct device *dev,
+			      struct device_attribute *attr, char *buf)
+{
+	struct srp_target_port *target = host_to_target(class_to_shost(dev));
+
+	return sprintf(buf, "%u\n%s", target->rco_delay,
+		       test_bit(SRP_RCO_DELAYSET, &target->rco_flags) ? "[set]\n" : "");
+}
+
+static ssize_t store_rco_delay(struct device *dev,
+			       struct device_attribute *attr,
+			       const char *buf, size_t count)
+{
+	struct srp_target_port *target = host_to_target(class_to_shost(dev));
+	char ch[16];
+	int res;
+	unsigned int rco_delay;
+
+	sprintf(ch, "%.*s", min_t(int, sizeof(ch) - 1, count), buf);
+	res = kstrtouint(ch, 0, &rco_delay);
+	if (res)
+		goto out;
+
+	if (rco_delay == 0) {
+		clear_bit(SRP_RCO_DELAYSET, &target->rco_flags);
+		res = count;
+	} else if (rco_delay < 10 || rco_delay > 60) {
+		res = -EINVAL;
+	} else {
+		target->rco_delay = rco_delay;
+		set_bit(SRP_RCO_DELAYSET, &target->rco_flags);
+		res = count;
+	}
+out:
+	return res;
+}
+
 static DEVICE_ATTR(id_ext,	    S_IRUGO, show_id_ext,	   NULL);
 static DEVICE_ATTR(ioc_guid,	    S_IRUGO, show_ioc_guid,	   NULL);
 static DEVICE_ATTR(service_id,	    S_IRUGO, show_service_id,	   NULL);
@@ -2159,6 +2200,8 @@ static DEVICE_ATTR(local_ib_device, S_IRUGO, show_local_ib_device, NULL);
 static DEVICE_ATTR(cmd_sg_entries,  S_IRUGO, show_cmd_sg_entries,  NULL);
 static DEVICE_ATTR(allow_ext_sg,    S_IRUGO, show_allow_ext_sg,    NULL);
 static DEVICE_ATTR(qp_retries,      S_IRUGO, show_qp_retries,      NULL);
+static DEVICE_ATTR(rco_delay,       S_IRUGO|S_IWUSR, show_rco_delay,
+		   store_rco_delay);
 
 static struct device_attribute *srp_host_attrs[] = {
 	&dev_attr_id_ext,
@@ -2174,6 +2217,7 @@ static struct device_attribute *srp_host_attrs[] = {
 	&dev_attr_cmd_sg_entries,
 	&dev_attr_allow_ext_sg,
 	&dev_attr_qp_retries,
+	&dev_attr_rco_delay,
 	NULL
 };
 

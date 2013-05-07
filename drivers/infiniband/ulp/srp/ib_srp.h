@@ -175,6 +175,7 @@ struct srp_target_port {
 	bool			connected;
 
 #define SRP_RCO_ACTIVE		0
+#define SRP_RCO_DELAYSET	1
 	unsigned long		rco_flags;
 	u32			rco_delay;
 
