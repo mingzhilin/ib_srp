@@ -2725,6 +2725,17 @@ out:
 static DEVICE_ATTR(def_rco_delay, S_IRUGO|S_IWUSR, show_def_rco_delay,
 		   store_def_rco_delay);
 
+static ssize_t show_targets_down(struct device *dev,
+				 struct device_attribute *attr,
+				 char *buf)
+{
+	struct srp_host *host = container_of(dev, struct srp_host, dev);
+
+	return sprintf(buf, "%d\n", atomic_read(&host->targets_down));
+}
+
+static DEVICE_ATTR(targets_down, S_IRUGO, show_targets_down, NULL);
+
 static struct srp_host *srp_add_port(struct srp_device *device, u8 port)
 {
 	struct srp_host *host;
@@ -2756,6 +2767,8 @@ static struct srp_host *srp_add_port(struct srp_device *device, u8 port)
 	if (device_create_file(&host->dev, &dev_attr_def_qp_retries))
 		goto err_class;
 	if (device_create_file(&host->dev, &dev_attr_def_rco_delay))
+		goto err_class;
+	if (device_create_file(&host->dev, &dev_attr_targets_down))
 		goto err_class;
 
 	return host;
