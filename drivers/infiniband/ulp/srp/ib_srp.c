@@ -585,6 +585,9 @@ static void srp_remove_work(struct work_struct *work)
 
 	WARN_ON_ONCE(target->state != SRP_TARGET_REMOVED);
 
+	shost_printk(KERN_INFO, target->scsi_host,
+		     PFX "%s called", __func__);
+
 	spin_lock(&target->srp_host->target_lock);
 	list_del(&target->list);
 	spin_unlock(&target->srp_host->target_lock);
