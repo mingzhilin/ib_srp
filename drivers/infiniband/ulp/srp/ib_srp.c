@@ -1376,10 +1376,7 @@ static void srp_fail_req(struct srp_target_port *target,
 static void srp_fail_target_io(struct srp_target_port *target)
 {
 	struct Scsi_Host *shost = target->scsi_host;
-	static struct ib_qp_attr qp_attr = {
-		.qp_state = IB_QPS_ERR
-	};
-	int i, ret;
+	int i;
 
 	WARN_ON_ONCE(target->state != SRP_TARGET_FAILED);
 
@@ -1388,13 +1385,6 @@ static void srp_fail_target_io(struct srp_target_port *target)
 		struct srp_request *req = &target->req_ring[i];
 		if (req)
 			srp_fail_req(target, req);
-	}
-
-	if (target->qp) {
-		ret = ib_modify_qp(target->qp, &qp_attr, IB_QP_STATE);
-		WARN(ret != 0, "ib_modify_qp() failed: %d\n", ret);
-		if (!ret)
-			target->qp_in_error = true;
 	}
 
 	/*
