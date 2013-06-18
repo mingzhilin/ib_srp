@@ -1518,6 +1518,7 @@ static int srp_queuecommand(struct Scsi_Host *shost, struct scsi_cmnd *scmnd)
 	int len;
 
 	if (unlikely(target->transport_offline)) {
+		scmnd->request->cmd_flags |= REQ_QUIET;
 		scmnd->result = DID_NO_CONNECT << 16;
 		scmnd->scsi_done(scmnd);
 		return 0;
@@ -1954,6 +1955,7 @@ static int srp_abort(struct scsi_cmnd *scmnd)
 		ret = FAILED;
 
 	srp_free_req(target, req, scmnd, 0);
+	scmnd->request->cmd_flags |= REQ_QUIET;
 	scmnd->result = DID_ABORT << 16;
 	scmnd->scsi_done(scmnd);
 
