@@ -1426,6 +1426,8 @@ static void srp_reconnect_work(struct work_struct *work)
 	if (!srp_set_target_state2(target, SRP_TARGET_FAILED, SRP_TARGET_RECON))
 		goto stop_rco;
 
+	WARN_ON(scsi_host_in_recovery(target->scsi_host));
+
 	if (!srp_reconnect_target(target)) {
 		srp_set_target_state2(target, SRP_TARGET_LIVE, SRP_TARGET_FAILED);
 		goto stop_rco;
@@ -1916,6 +1918,9 @@ static int srp_abort(struct scsi_cmnd *scmnd)
 	enum srp_target_state state;
 	int ret;
 
+	if (likely(target->transport_offline))
+		return FAST_IO_FAIL;
+
 	shost_printk(KERN_ERR, target->scsi_host, "SRP abort called\n");
 
 	state = srp_block_scsi_eh(scmnd);
@@ -1944,6 +1949,9 @@ static int srp_reset_device(struct scsi_cmnd *scmnd)
 	int i;
 	enum srp_target_state state;
 
+	if (likely(target->transport_offline))
+		return FAST_IO_FAIL;
+
 	shost_printk(KERN_ERR, target->scsi_host, "SRP reset_device called\n");
 
 	state = srp_block_scsi_eh(scmnd);
@@ -1969,6 +1977,9 @@ static int srp_reset_host(struct scsi_cmnd *scmnd)
 {
 	struct srp_target_port *target = host_to_target(scmnd->device->host);
 	int ret = FAILED;
+
+	if (target->transport_offline)
+		return FAST_IO_FAIL;
 
 	shost_printk(KERN_ERR, target->scsi_host, PFX "SRP reset_host called\n");
 
