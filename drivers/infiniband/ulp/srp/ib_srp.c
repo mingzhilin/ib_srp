@@ -1419,17 +1419,34 @@ static void srp_tl_err_work(struct work_struct *work)
 static void srp_reconnect_work(struct work_struct *work)
 {
 	struct srp_target_port *target;
+	struct Scsi_Host *shost;
+	struct scsi_device *sdev;
+	unsigned long flags;
 
 	target = container_of(to_delayed_work(work), struct srp_target_port,
 			      reconnect_work);
+	shost = target->scsi_host;
 
 	if (!srp_set_target_state2(target, SRP_TARGET_FAILED, SRP_TARGET_RECON))
 		goto stop_rco;
 
-	WARN_ON(scsi_host_in_recovery(target->scsi_host));
+	WARN_ON(scsi_host_in_recovery(shost));
 
 	if (!srp_reconnect_target(target)) {
 		srp_set_target_state2(target, SRP_TARGET_LIVE, SRP_TARGET_FAILED);
+		/*
+		 * It is possible that the SCSI error handling offlines devices
+		 * after tl_err_work completed. scsi_target_unblock() doesn't set
+		 * them running again. In this case we have to set these SCSI
+		 * devices running again explicitly after successful reconnect.
+		 * The message in the kernel log looks like this:
+		 * sd 8:0:0:1: Device offlined - not ready after error recovery
+		 */
+		spin_lock_irqsave(shost->host_lock, flags);
+		__shost_for_each_device(sdev, shost)
+			if (sdev->sdev_state == SDEV_OFFLINE)
+				sdev->sdev_state = SDEV_RUNNING;
+		spin_unlock_irqrestore(shost->host_lock, flags);
 		goto stop_rco;
 	} else {
 		if (srp_set_target_state2(target, SRP_TARGET_RECON, SRP_TARGET_FAILED))
