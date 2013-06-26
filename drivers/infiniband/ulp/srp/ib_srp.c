@@ -478,25 +478,17 @@ static bool srp_set_target_state2(struct srp_target_port *target,
 	return changed;
 }
 
-static bool srp_queue_tl_err_work(struct srp_target_port *target)
+static void srp_queue_tl_err_work(struct srp_target_port *target)
 {
-	bool changed = srp_set_target_state2(target, SRP_TARGET_FAILED,
-					     SRP_TARGET_LIVE);
-
-	if (changed)
-		queue_work(system_long_wq, &target->tl_err_work);
-
-	return changed;
+	queue_work(system_long_wq, &target->tl_err_work);
 }
 
-static bool srp_queue_remove_work(struct srp_target_port *target)
+static void srp_queue_remove_work(struct srp_target_port *target)
 {
 	bool changed = srp_set_target_state(target, SRP_TARGET_REMOVED);
 
 	if (changed)
 		queue_work(system_long_wq, &target->remove_work);
-
-	return changed;
 }
 
 static bool srp_change_conn_state(struct srp_target_port *target,
@@ -1405,12 +1397,20 @@ static void srp_fail_target_io(struct srp_target_port *target)
 static void srp_tl_err_work(struct work_struct *work)
 {
 	struct srp_target_port *target;
+	bool changed;
 
 	target = container_of(work, struct srp_target_port, tl_err_work);
+
+	changed = srp_set_target_state2(target, SRP_TARGET_FAILED,
+					SRP_TARGET_LIVE);
+	if (!changed)
+		goto out;
 
 	shost_printk(KERN_INFO, target->scsi_host,
 		     PFX "%s called", __func__);
 	srp_fail_target_io(target);
+out:
+	return;
 }
 
 /**
