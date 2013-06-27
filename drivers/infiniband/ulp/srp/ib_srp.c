@@ -1372,6 +1372,7 @@ static void srp_fail_target_io(struct srp_target_port *target)
 
 	WARN_ON_ONCE(target->state != SRP_TARGET_FAILED);
 
+	scsi_block_requests(shost);
 	scsi_target_block(&shost->shost_gendev);
 	for (i = 0; i < SRP_CMD_SQ_SIZE; ++i) {
 		struct srp_request *req = &target->req_ring[i];
@@ -1447,6 +1448,7 @@ static void srp_reconnect_work(struct work_struct *work)
 			if (sdev->sdev_state == SDEV_OFFLINE)
 				sdev->sdev_state = SDEV_RUNNING;
 		spin_unlock_irqrestore(shost->host_lock, flags);
+		scsi_unblock_requests(shost);
 		goto stop_rco;
 	} else {
 		if (srp_set_target_state2(target, SRP_TARGET_RECON, SRP_TARGET_FAILED))
@@ -2006,6 +2008,7 @@ static int srp_reset_host(struct scsi_cmnd *scmnd)
 		if (!srp_reconnect_target(target)) {
 			srp_set_target_state2(target, SRP_TARGET_LIVE,
 					      SRP_TARGET_FAILED);
+			scsi_unblock_requests(target->scsi_host);
 			ret = SUCCESS;
 		} else {
 			if (srp_set_target_state2(target, SRP_TARGET_RECON,
