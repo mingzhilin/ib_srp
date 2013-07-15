@@ -5,7 +5,7 @@ Copyright ProfitBricks GmbH - All rights reserved
 
 Author:  Sebastian Riemer <sebastian.riemer@profitbricks.com>
 License: GPLv2
-Version: 0.6   --> fail IO upon QP tmo + tests + automatic reconnect
+Version: 0.6.1   --> fail IO upon QP tmo + tests + automatic reconnect
 
 Kernel version used: 3.9-rc6
 

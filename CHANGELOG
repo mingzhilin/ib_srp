@@ -1,3 +1,20 @@
+0.6.1, 2013-07-15
+-----------------------------------------------------
+* InfiniBand congestion bugfix release: During congestion
+  the SCSI error handlers run very likely simultaneously
+  while QP times out and IO is failed. We may not set the
+  QP into error state with pending IO, we've noticed.
+  There were also offline devices not set to running again
+  after successful reconnect. Another issue was that
+  commands were still queued while the transport already
+  failed.
+
+  Commits:
+  IB/srp: Don't set the QP into error state in tl_err_work
+  IB/srp: Set sdevs to running upon successful reconnect
+  IB/srp: Fix deadlock if srp_handle_qp_err() is called
+  IB/srp: Block SCSI requests if transport fails
+
 0.6, 2013-05-08
 -----------------------------------------------------
 * removed the manual reconnect as it was temporary
